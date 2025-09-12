@@ -1,3 +1,7 @@
+mod parcom;
+
+use crate::parcom::char;
+
 fn main() {
-    println!("Hello, world!");
+    println!("{:?}", char('H')("Hello"));
 }

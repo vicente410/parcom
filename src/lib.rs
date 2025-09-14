@@ -34,6 +34,21 @@ pub fn map<'a, T: 'a, U: 'a>(p: Parser<'a, T>, f: fn(T) -> U) -> Parser<'a, U> {
     Box::new(move |input: &str| p(input).map(|(rest, output)| (rest, f(output))))
 }
 
+pub fn map_option<'a, T: 'a, U: 'a>(p: Parser<'a, T>, f: fn(T) -> Option<U>) -> Parser<'a, U> {
+    Box::new(move |input: &str| {
+        p(input).and_then(|(rest, output)| f(output).map(|output| (rest, output)))
+    })
+}
+
+pub fn map_result<'a, T: 'a, U: 'a, V: 'a>(
+    p: Parser<'a, T>,
+    f: fn(T) -> Result<U, V>,
+) -> Parser<'a, U> {
+    Box::new(move |input: &str| {
+        p(input).and_then(|(rest, output)| f(output).ok().map(|output| (rest, output)))
+    })
+}
+
 pub fn pair<'a, T: 'a, U: 'a>(p1: Parser<'a, T>, p2: Parser<'a, U>) -> Parser<'a, (T, U)> {
     Box::new(move |input: &str| {
         p1(input)
@@ -162,6 +177,45 @@ mod tests {
     #[test]
     fn map_none() {
         assert_eq!(map(char('d'), |c| c as u8)("abc"), None);
+    }
+
+    #[test]
+    fn map_option_some() {
+        assert_eq!(map_option(char('a'), |c| Some(c))("abc"), Some(("bc", 'a')));
+    }
+
+    #[test]
+    fn map_option_none_function() {
+        assert_eq!(map_option::<char, ()>(char('a'), |_| None)("abc"), None);
+    }
+
+    #[test]
+    fn map_option_none_parser() {
+        assert_eq!(map_option(char('b'), |c| Some(c))("abc"), None);
+    }
+
+    #[test]
+    fn map_result_ok() {
+        assert_eq!(
+            map_result::<char, char, ()>(char('a'), |c| Ok(c))("abc"),
+            Some(("bc", 'a'))
+        );
+    }
+
+    #[test]
+    fn map_result_err() {
+        assert_eq!(
+            map_result::<char, char, ()>(char('a'), |_| Err(()))("abc"),
+            None
+        );
+    }
+
+    #[test]
+    fn map_result_none() {
+        assert_eq!(
+            map_result::<char, char, ()>(char('b'), |c| Ok(c))("abc"),
+            None
+        );
     }
 
     #[test]

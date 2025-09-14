@@ -65,3 +65,25 @@ pub fn pair<'a, T: 'a, U: 'a>(p1: Parser<'a, T>, p2: Parser<'a, U>) -> Parser<'a
         }
     })
 }
+
+pub fn take_while<'a>(f: fn(char) -> bool) -> Parser<'a, String> {
+	Box::new(move |input: &str| {
+		let mut idx = 0;
+
+		while idx < input.len() && f(input.as_bytes()[idx] as char) { 
+			idx += 1;
+		}
+
+		Some((&input[idx..], (&input[..idx]).to_string()))
+	})
+}
+
+pub fn map<'a, T: 'a, U: 'a>(p: Parser<'a, T>, f: fn(T) -> U) -> Parser<'a, U> {
+	Box::new(move |input: &str| {
+		if let Some((rest, output)) = p(input) {
+			Some((rest, f(output)))
+		} else {
+			None
+		}
+	})
+}

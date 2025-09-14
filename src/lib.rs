@@ -1,4 +1,4 @@
-type Parser<'a, T> = Box<dyn Fn(&str) -> Option<(&str, T)> + 'a>;
+pub type Parser<'a, T> = Box<dyn Fn(&str) -> Option<(&str, T)> + 'a>;
 
 pub fn char(c: char) -> Parser<'static, char> {
     Box::new(move |input: &str| {
@@ -22,7 +22,7 @@ pub fn string(s: &str) -> Parser<'_, &str> {
 
 pub fn predicate<'a>(f: fn(char) -> bool) -> Parser<'a, char> {
     Box::new(move |input: &str| {
-        if f(input.as_bytes()[0] as char) {
+        if input.len() > 0 && f(input.as_bytes()[0] as char) {
             Some((&input[1..], input.as_bytes()[0] as char))
         } else {
             None
@@ -31,36 +31,42 @@ pub fn predicate<'a>(f: fn(char) -> bool) -> Parser<'a, char> {
 }
 
 pub fn map<'a, T: 'a, U: 'a>(p: Parser<'a, T>, f: fn(T) -> U) -> Parser<'a, U> {
-    Box::new(move |input: &str| {
-        if let Some((rest, output)) = p(input) {
-            Some((rest, f(output)))
-        } else {
-            None
-        }
-    })
+    Box::new(move |input: &str| p(input).map(|(rest, output)| (rest, f(output))))
 }
 
-pub fn sequence<'a, T: 'a, U: 'a>(p1: Parser<'a, T>, p2: Parser<'a, U>) -> Parser<'a, (T, U)> {
+pub fn pair<'a, T: 'a, U: 'a>(p1: Parser<'a, T>, p2: Parser<'a, U>) -> Parser<'a, (T, U)> {
     Box::new(move |input: &str| {
-        if let Some((rest, output1)) = p1(input) {
-            if let Some((rest, output2)) = p2(rest) {
-                Some((rest, (output1, output2)))
-            } else {
-                return None;
-            }
-        } else {
-            return None;
-        }
+        p1(input)
+            .and_then(|(rest, output1)| p2(rest).map(|(rest, output2)| (rest, (output1, output2))))
     })
 }
 
 pub fn branch<'a, T: 'a>(p1: Parser<'a, T>, p2: Parser<'a, T>) -> Parser<'a, T> {
+    Box::new(move |input: &str| p1(input).or(p2(input)))
+}
+
+pub fn delimited<'a, T: 'a, U: 'a, V: 'a>(
+    p1: Parser<'a, T>,
+    p2: Parser<'a, U>,
+    p3: Parser<'a, V>,
+) -> Parser<'a, U> {
     Box::new(move |input: &str| {
-        if let Some((rest, output)) = p1(input) {
-            Some((rest, output))
-        } else {
-            p2(input)
-        }
+        p1(input).and_then(|(rest, _)| {
+            p2(rest).and_then(|(rest, output)| p3(rest).map(|(rest, _)| (rest, output)))
+        })
+    })
+}
+
+pub fn separated_pair<'a, T: 'a, U: 'a, V: 'a>(
+    p1: Parser<'a, T>,
+    p2: Parser<'a, U>,
+    p3: Parser<'a, V>,
+) -> Parser<'a, (T, V)> {
+    Box::new(move |input: &str| {
+        p1(input).and_then(|(rest, output1)| {
+            p2(rest)
+                .and_then(|(rest, _)| p3(rest).map(|(rest, output2)| (rest, (output1, output2))))
+        })
     })
 }
 
@@ -159,18 +165,18 @@ mod tests {
     }
 
     #[test]
-    fn sequence_success() {
-        assert_eq!(sequence(char('a'), char('b'))("abc"), Some(("c", ('a', 'b'))));
+    fn pair_success() {
+        assert_eq!(pair(char('a'), char('b'))("abc"), Some(("c", ('a', 'b'))));
     }
 
     #[test]
-    fn sequence_first_none() {
-        assert_eq!(sequence(char('d'), char('a'))("abc"), None);
+    fn pair_first_none() {
+        assert_eq!(pair(char('d'), char('a'))("abc"), None);
     }
 
     #[test]
-    fn sequence_second_none() {
-        assert_eq!(sequence(char('a'), char('c'))("abc"), None);
+    fn pair_second_none() {
+        assert_eq!(pair(char('a'), char('c'))("abc"), None);
     }
 
     #[test]
@@ -189,8 +195,57 @@ mod tests {
     }
 
     #[test]
+    fn delimited_success() {
+        assert_eq!(
+            delimited(char('a'), char('b'), char('c'))("abc"),
+            Some(("", 'b'))
+        );
+    }
+
+    #[test]
+    fn delimited_first_none() {
+        assert_eq!(delimited(char('b'), char('b'), char('c'))("abc"), None);
+    }
+
+    #[test]
+    fn delimited_second_none() {
+        assert_eq!(delimited(char('a'), char('c'), char('c'))("abc"), None);
+    }
+
+    #[test]
+    fn delimited_third_none() {
+        assert_eq!(delimited(char('a'), char('b'), char('d'))("abc"), None);
+    }
+
+    #[test]
+    fn separated_pair_success() {
+        assert_eq!(
+            separated_pair(char('a'), char('b'), char('c'))("abc"),
+            Some(("", ('a', 'c')))
+        );
+    }
+
+    #[test]
+    fn separated_pair_first_none() {
+        assert_eq!(separated_pair(char('b'), char('b'), char('c'))("abc"), None);
+    }
+
+    #[test]
+    fn separated_pair_second_none() {
+        assert_eq!(separated_pair(char('a'), char('c'), char('c'))("abc"), None);
+    }
+
+    #[test]
+    fn separated_pair_third_none() {
+        assert_eq!(separated_pair(char('b'), char('b'), char('d'))("abc"), None);
+    }
+
+    #[test]
     fn some_success() {
-        assert_eq!(some(char(' '))("   abc"), Some(("abc", vec![' ', ' ', ' '])));
+        assert_eq!(
+            some(char(' '))("   abc"),
+            Some(("abc", vec![' ', ' ', ' ']))
+        );
     }
 
     #[test]
@@ -200,7 +255,10 @@ mod tests {
 
     #[test]
     fn many_success() {
-        assert_eq!(many(char(' '))("   abc"), Some(("abc", vec![' ', ' ', ' '])));
+        assert_eq!(
+            many(char(' '))("   abc"),
+            Some(("abc", vec![' ', ' ', ' ']))
+        );
     }
 
     #[test]

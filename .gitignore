@@ -1,1 +1,4 @@
-/target
+/parcom-rs/target
+/parcom-hs/Main
+/parcom-hs/Main.o
+/parcom-hs/Main.hi
